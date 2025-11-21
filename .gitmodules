@@ -1,0 +1,3 @@
+[submodule "fuse_rust"]
+	path = fuse_rust
+	url = https://github.com/PanjiSri/fuse_rust.git
