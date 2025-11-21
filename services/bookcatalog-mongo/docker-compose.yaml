@@ -1,0 +1,40 @@
+services:
+  mongo:
+    image: mongo:latest 
+    container_name: bookcatalog-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - type: bind
+        source: /tmp/fuse/
+        target: /data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - bookcatalog-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bookcatalog-nd-app
+    environment:
+      MONGO_URI: mongodb://mongo:27017/books
+      MONGO_DB: books
+      MONGO_COLLECTION: books
+      PORT: 80
+    ports:
+      - "8080:80"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - bookcatalog-network
+
+networks:
+  bookcatalog-network:
+    driver: bridge

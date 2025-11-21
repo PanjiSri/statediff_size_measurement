@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: bookcatalog-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: books
+    ports:
+      - "5432:5432"
+    volumes:
+      - type: bind
+        source: /tmp/fuse/
+        target: /var/lib/postgresql/data/
+      # - /etc/passwd:/etc/passwd:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - bookcatalog-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bookcatalog-nd-app
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      PORT: 80
+    ports:
+      - "8080:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bookcatalog-network
+
+networks:
+  bookcatalog-network:
+    driver: bridge

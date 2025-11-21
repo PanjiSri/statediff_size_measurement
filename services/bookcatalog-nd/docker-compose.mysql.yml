@@ -1,0 +1,42 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: bookcatalog-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: books
+    ports:
+      - "3306:3306"
+    volumes:
+      - type: bind
+        source: /tmp/fuse/
+        target: /var/lib/mysql/
+      # - /etc/passwd:/etc/passwd:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - bookcatalog-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bookcatalog-nd-app
+    environment:
+      DB_TYPE: mysql
+      DB_HOST: mysql
+      PORT: 80
+    ports:
+      - "8080:80"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - bookcatalog-network
+
+networks:
+  bookcatalog-network:
+    driver: bridge

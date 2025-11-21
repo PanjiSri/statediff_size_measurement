@@ -1,0 +1,22 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bookcatalog-nd-app
+    environment:
+      DB_TYPE: sqlite
+      PORT: 80
+    ports:
+      - "8080:80"
+    volumes:
+      - type: bind
+        source: /tmp/fuse/
+        target: /app/data/
+      # - /etc/passwd:/etc/passwd:ro
+    networks:
+      - bookcatalog-network
+
+networks:
+  bookcatalog-network:
+    driver: bridge
