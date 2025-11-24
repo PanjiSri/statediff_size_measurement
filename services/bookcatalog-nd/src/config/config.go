@@ -31,8 +31,12 @@ func Connect() {
 
 	log.Println("datastore: ", dbType)
 
-	connAttempt := 10
-	waitTime := 5 * time.Millisecond
+	// connAttempt := 10
+	// waitTime := 5 * time.Millisecond
+
+	// increase the number of connection attempts and wait time
+	connAttempt := 15
+	waitTime := 50 * time.Millisecond
 
 	switch dbType {
 	case "mysql":

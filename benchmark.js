@@ -1,18 +1,52 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Trend } from 'k6/metrics';
+import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
+
+function loadEnvFile(path = '.env') {
+  try {
+    const content = open(path);
+    return content.split(/\r?\n/).reduce((acc, line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        return acc;
+      }
+      const idx = trimmed.indexOf('=');
+      if (idx === -1) {
+        return acc;
+      }
+      const key = trimmed.slice(0, idx).trim();
+      const value = trimmed
+        .slice(idx + 1)
+        .trim()
+        .replace(/^['"]|['"]$/g, '');
+      if (key) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+  } catch (e) {
+    return {};
+  }
+}
+
+const envFile = loadEnvFile();
 
 const createLatency = new Trend('create_book_latency');
 const getLatency = new Trend('get_book_latency');
 const updateLatency = new Trend('update_book_latency');
 const deleteLatency = new Trend('delete_book_latency');
 
-const SERVICE_NAME = __ENV.SERVICE_NAME || 'bookcatalog-nd-app';
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080/api/books';
-const VUS = parseInt(__ENV.VUS || '1');
-const DURATION = __ENV.DURATION || '30s';
-const WARMUP_ITERATIONS = parseInt(__ENV.WARMUP_ITERATIONS || '0');
-const DATABASE_TYPE = __ENV.DATABASE_TYPE || 'sqlite';
+const SERVICE_NAME = __ENV.SERVICE_NAME || envFile.SERVICE_NAME || 'bookcatalog-nd-app';
+const BASE_URL = __ENV.BASE_URL || envFile.BASE_URL || 'http://localhost:8081/api/books'; 
+const VUS = parseInt(__ENV.VUS || envFile.VUS || '1');
+const DURATION = __ENV.DURATION || envFile.DURATION || '30s';
+const WARMUP_ITERATIONS = parseInt(__ENV.WARMUP_ITERATIONS || envFile.WARMUP_ITERATIONS || '0');
+const DATABASE_TYPE = __ENV.DATABASE_TYPE || envFile.DATABASE_TYPE || 'sqlite';
+
+console.log(`Configured with VUS=${VUS}, DURATION=${DURATION}, WARMUP_ITERATIONS=${WARMUP_ITERATIONS}, DATABASE_TYPE=${DATABASE_TYPE}`);
+console.log(`Target Service: ${SERVICE_NAME}`);
+console.log(`Base URL: ${BASE_URL}`);
 
 export const options = {
   scenarios: {
@@ -29,82 +63,45 @@ export const options = {
 };
 
 export function setup() {
-  console.log(`Starting warm-up with ${WARMUP_ITERATIONS} iterations`);
+  const timestamp = Date.now();
+  const csvFilename = `bookcatalog_results_${DATABASE_TYPE}_${timestamp}.csv`;
   
-  const headers = {
-    'XDN': SERVICE_NAME,
-    'Content-Type': 'application/json',
-  };
+  console.log(`\n=== Starting Benchmark ===`);
+  console.log(`Target Log File: ${csvFilename}`);
   
-  for (let i = 0; i < WARMUP_ITERATIONS; i++) {
-    console.log(`Warm-up progress: ${i}/${WARMUP_ITERATIONS}`);
+  if (WARMUP_ITERATIONS > 0) {
+    console.log(`Starting warm-up with ${WARMUP_ITERATIONS} iterations...`);
     
-    const book = {
-      title: `Warmup Book ${i}`,
-      author: `Warmup Author ${i}`
+    const headers = {
+      'XDN': SERVICE_NAME,
+      'Content-Type': 'application/json',
     };
     
-    const postResult = http.post(
-      BASE_URL,
-      JSON.stringify(book),
-      { headers: headers }
-    );
-    
-    check(postResult, {
-      'Warm-up POST status is 200': (r) => r.status === 200,
-    });
-    
-    const bookId = postResult.json('id');
-    if (bookId) {
-      sleep(0.1);
-      
-      const getResult = http.get(
-        `${BASE_URL}/${bookId}`,
-        { headers: headers }
-      );
-      
-      check(getResult, {
-        'Warm-up GET status is 200': (r) => r.status === 200,
-      });
-      
-      sleep(0.1);
-      
-      const updatedBook = {
-        title: `Updated Warmup Book ${i}`,
-        author: `Updated Warmup Author ${i}`
+    for (let i = 0; i < WARMUP_ITERATIONS; i++) {
+      const book = {
+        title: `Warmup Book ${i}`,
+        author: `Warmup Author ${i}`
       };
       
-      const putResult = http.put(
-        `${BASE_URL}/${bookId}`,
-        JSON.stringify(updatedBook),
-        { headers: headers }
-      );
+      const postResult = http.post(BASE_URL, JSON.stringify(book), { headers: headers });
+      const bookId = postResult.json('id');
       
-      check(putResult, {
-        'Warm-up PUT status is 200': (r) => r.status === 200,
-      });
-      
-      sleep(0.1);
-      
-      const deleteResult = http.del(
-        `${BASE_URL}/${bookId}`,
-        null,
-        { headers: headers }
-      );
-      
-      check(deleteResult, {
-        'Warm-up DELETE status is 200': (r) => r.status === 200,
-      });
-      
-      sleep(0.1);
+      if (bookId) {
+        http.get(`${BASE_URL}/${bookId}`, { headers: headers });
+        
+        const updatedBook = { title: `Warmup Update ${i}`, author: `Warmup Update ${i}` };
+        http.put(`${BASE_URL}/${bookId}`, JSON.stringify(updatedBook), { headers: headers });
+        
+        http.del(`${BASE_URL}/${bookId}`, null, { headers: headers });
+      }
     }
+    console.log('Warm-up complete.');
   }
-  
-  console.log('Warm-up complete. Starting actual test.');
-  return {};
+
+  return { filename: csvFilename };
 }
 
-export default function () {
+export default function (data) {
   const book = {
     title: `Test Book ${__VU}_${__ITER}`,
     author: `Test Author ${__VU}_${__ITER}`
@@ -113,8 +110,10 @@ export default function () {
   const headers = {
     'XDN': SERVICE_NAME,
     'Content-Type': 'application/json',
+    'X-Log-Filename': data.filename, 
   };
 
+  // CREATE (POST)
   const postResponse = http.post(
     BASE_URL,
     JSON.stringify(book),
@@ -128,9 +127,11 @@ export default function () {
   });
   
   const bookId = postResponse.json('id');
+  
   if (bookId) {
     sleep(0.1);
 
+    // READ (GET)
     const getResponse = http.get(
       `${BASE_URL}/${bookId}`,
       { headers: headers }
@@ -143,6 +144,7 @@ export default function () {
     
     sleep(0.1);
 
+    // UPDATE (PUT)
     const updatedBook = {
       title: `Updated Test Book ${__VU}_${__ITER}`,
       author: `Updated Test Author ${__VU}_${__ITER}`
@@ -161,6 +163,7 @@ export default function () {
     
     sleep(0.1);
 
+    // DELETE (DEL)
     const deleteResponse = http.del(
       `${BASE_URL}/${bookId}`,
       null,
@@ -177,51 +180,10 @@ export default function () {
 }
 
 export function handleSummary(data) {
-  let avgGetLatency = 0;
-  let avgCreateLatency = 0;
-  let avgUpdateLatency = 0;
-  let avgDeleteLatency = 0;
-  
-  if (data.metrics.get_book_latency && data.metrics.get_book_latency.values) {
-    avgGetLatency = data.metrics.get_book_latency.values.avg;
-  } else {
-    console.log("Warning: GET latency metrics not available");
-  }
-  
-  if (data.metrics.create_book_latency && data.metrics.create_book_latency.values) {
-    avgCreateLatency = data.metrics.create_book_latency.values.avg;
-  } else {
-    console.log("Warning: CREATE latency metrics not available");
-  }
-  
-  if (data.metrics.update_book_latency && data.metrics.update_book_latency.values) {
-    avgUpdateLatency = data.metrics.update_book_latency.values.avg;
-  } else {
-    console.log("Warning: UPDATE latency metrics not available");
-  }
-  
-  if (data.metrics.delete_book_latency && data.metrics.delete_book_latency.values) {
-    avgDeleteLatency = data.metrics.delete_book_latency.values.avg;
-  } else {
-    console.log("Warning: DELETE latency metrics not available");
-  }
-  
-  const overallLatency = (avgGetLatency + avgCreateLatency + avgUpdateLatency + avgDeleteLatency) / 4;
-  
-  const csvHeader = "get_latency,create_latency,update_latency,delete_latency,overall_latency\n";
-  const csvRow = `${avgGetLatency.toFixed(2)},${avgCreateLatency.toFixed(2)},${avgUpdateLatency.toFixed(2)},${avgDeleteLatency.toFixed(2)},${overallLatency.toFixed(2)}\n`;
-  
-  console.log(`\n=== BookCatalog Benchmark Results ===`);
-  console.log(`GET avg: ${avgGetLatency.toFixed(2)}ms`);
-  console.log(`CREATE avg: ${avgCreateLatency.toFixed(2)}ms`);
-  console.log(`UPDATE avg: ${avgUpdateLatency.toFixed(2)}ms`);
-  console.log(`DELETE avg: ${avgDeleteLatency.toFixed(2)}ms`);
-  console.log(`Overall: ${overallLatency.toFixed(2)}ms`);
-  
-  const filename = `bookcatalog_results_${DATABASE_TYPE}_${Date.now()}.csv`;
+  console.log(`\n=== BookCatalog Benchmark Summary ===`);
+  console.log(`VUs: ${VUS}, Duration: ${DURATION}`);
   
   return {
-    'stdout': `BookCatalog benchmark complete`,
-    [filename]: csvHeader + csvRow,
+    'stdout': textSummary(data, { indent: ' ', enableColors: true }),
   };
 }

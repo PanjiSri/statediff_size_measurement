@@ -21,7 +21,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bookcatalog-nd-app
+    container_name: bookcatalog-nd-app-mongo
     environment:
       MONGO_URI: mongodb://mongo:27017/books
       MONGO_DB: books
